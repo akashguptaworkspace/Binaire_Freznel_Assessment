@@ -1,0 +1,8 @@
+node_modules
+.git
+samples
+docs
+tests
+scripts
+*.log
+.DS_Store

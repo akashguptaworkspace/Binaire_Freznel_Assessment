@@ -1,0 +1,25 @@
+# Render blueprint — a long-lived Node process, so the worker_threads pool,
+# the background scheduler tick and the deadlock-guard sweep all run properly,
+# and SSE streams stay open.
+services:
+  - type: web
+    name: freznel-queue-backend
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: NODE_ENV
+        value: production
+      - key: WORKER_DEMO_DELAY_MS
+        value: "150"
+      - key: QUEUE_CAPACITY
+        value: "250"
+      # Lock this down to the deployed frontend origin once you have its URL,
+      # e.g. https://binaire-freznel-assessment-frontend.vercel.app
+      - key: CORS_ORIGIN
+        value: "*"
