@@ -1,0 +1,21 @@
+{
+  "name": "binaire-freznel-assessment-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "React (Vite) live dashboard for the Binaire Freznel multi-user queueing system.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "vite": "^8.2.2"
+  }
+}
