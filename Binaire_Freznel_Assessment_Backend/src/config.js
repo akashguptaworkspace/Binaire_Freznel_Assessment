@@ -63,7 +63,7 @@ export const config = {
 
   scheduler: {
     // Persistent tick cadence. In serverless the frontend drives ticks over
-    // HTTP instead (see http/routes.js `/api/tick`).
+    // HTTP instead (see http/controllers/realtimeController.js `tick`).
     tickMs: int(process.env.SCHEDULER_TICK_MS, 90),
   },
 

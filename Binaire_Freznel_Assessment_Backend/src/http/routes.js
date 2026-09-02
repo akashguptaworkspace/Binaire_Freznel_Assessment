@@ -1,131 +1,55 @@
 import { Router } from 'express';
-import multer from 'multer';
-import config from '../config.js';
-import { AppError, ValidationError } from '../util/errors.js';
+
+import { asyncHandler } from './middleware/asyncHandler.js';
+import { errorHandler } from './middleware/errorHandler.js';
+import { serverlessTick } from './middleware/serverlessTick.js';
+import { upload } from './middleware/upload.js';
+
+import { createHealthController } from './controllers/healthController.js';
+import { createClientsController } from './controllers/clientsController.js';
+import { createRealtimeController } from './controllers/realtimeController.js';
+import { createTasksController } from './controllers/tasksController.js';
 
 /**
- * All REST routes. The engine does the real work; these handlers only
- * validate shape, translate errors to HTTP, and (for `/tick`) let a
- * serverless caller advance the scheduler.
+ * The `/api` route table — nothing but wiring. Each line maps a method +
+ * path to a controller action; request parsing lives in middleware, business
+ * logic in the engine, error translation in errorHandler.
+ *
+ * @param {{ engine: import('../engine/QueueEngine.js').QueueEngine,
+ *           sseHub: import('./SseHub.js').SseHub }} deps
  */
 export function createRouter({ engine, sseHub }) {
   const router = Router();
 
-  const upload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: config.upload.maxBytes, files: 1 },
-  });
+  const health = createHealthController();
+  const clients = createClientsController({ engine });
+  const realtime = createRealtimeController({ engine, sseHub });
+  const tasks = createTasksController({ engine });
 
-  const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+  router.use(serverlessTick({ engine }));
 
-  // In serverless mode every request nudges the scheduler forward, since
-  // there is no background timer. Harmless (idempotent) in server mode.
-  router.use((req, _res, next) => {
-    if (config.isServerless) engine.tick();
-    next();
-  });
+  // health
+  router.get('/health', health.show);
 
-  router.get('/health', (_req, res) => {
-    res.json({ ok: true, mode: config.isServerless ? 'serverless' : 'server', uptimeMs: process.uptime() * 1000 });
-  });
+  // clients
+  router.post('/clients', asyncHandler(clients.create));
+  router.post('/clients/:id/heartbeat', asyncHandler(clients.heartbeat));
+  router.delete('/clients/:id', asyncHandler(clients.remove));
 
-  // --- clients ------------------------------------------------------
-  router.post(
-    '/clients',
-    wrap((req, res) => {
-      const label = String(req.body?.label || '').slice(0, 60) || undefined;
-      const client = engine.registerClient(label);
-      res.status(201).json({ client: client.toJSON() });
-    }),
-  );
+  // realtime
+  router.get('/state', realtime.state);
+  router.get('/stream', realtime.stream);
+  router.post('/tick', realtime.tick);
 
-  router.post(
-    '/clients/:id/heartbeat',
-    wrap((req, res) => {
-      const client = engine.heartbeat(req.params.id);
-      res.json({ ok: Boolean(client) });
-    }),
-  );
+  // uploads / tasks
+  router.post('/uploads', upload.single('file'), asyncHandler(tasks.upload));
+  router.get('/tasks/:id', asyncHandler(tasks.show));
+  router.post('/tasks/:id/cancel', asyncHandler(tasks.cancel));
+  router.get('/tasks/:id/result', asyncHandler(tasks.result));
+  router.get('/tasks/:id/result/file', asyncHandler(tasks.resultFile));
 
-  router.delete(
-    '/clients/:id',
-    wrap((req, res) => {
-      const reaped = engine.disconnectClient(req.params.id);
-      res.json({ ok: true, reapedTasks: reaped });
-    }),
-  );
-
-  // --- realtime ----------------------------------------------------
-  router.get('/state', (_req, res) => res.json(engine.snapshot()));
-  router.get('/stream', sseHub.handler);
-  router.post('/tick', (_req, res) => {
-    engine.tick();
-    res.json(engine.snapshot());
-  });
-
-  // --- uploads / tasks -------------------------------------------
-  router.post(
-    '/uploads',
-    upload.single('file'),
-    wrap(async (req, res) => {
-      if (!req.file) throw new ValidationError('Missing "file" field (multipart/form-data).');
-      const clientId = String(req.body?.clientId || '').trim();
-      if (!clientId) throw new ValidationError('Missing "clientId".');
-      const priority = String(req.body?.priority || 'low').toLowerCase();
-      const input = { clientId, fileName: req.file.originalname, buffer: req.file.buffer, priority };
-
-      // Serverless: settle within this request (no background scheduler, and
-      // the next request may land on another instance). Server mode: enqueue
-      // and let the tick loop + SSE take it from here.
-      const task = config.isServerless ? await engine.submitAndSettle(input) : engine.submit(input);
-      res.status(201).json({ task });
-    }),
-  );
-
-  router.get(
-    '/tasks/:id',
-    wrap((req, res) => res.json({ task: engine.getTask(req.params.id) })),
-  );
-
-  router.post(
-    '/tasks/:id/cancel',
-    wrap((req, res) => {
-      const clientId = String(req.body?.clientId || '').trim() || null;
-      res.json({ task: engine.cancelTask(req.params.id, clientId) });
-    }),
-  );
-
-  router.get(
-    '/tasks/:id/result',
-    wrap((req, res) => {
-      const { summary } = engine.getResultFile(req.params.id);
-      res.json({ result: summary });
-    }),
-  );
-
-  // "Post processing completion, server sends the file back to the client."
-  router.get(
-    '/tasks/:id/result/file',
-    wrap((req, res) => {
-      const { fileName, csv } = engine.getResultFile(req.params.id);
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-      res.send(csv);
-    }),
-  );
-
-  // multer + domain error translation
-  router.use((err, _req, res, _next) => {
-    if (err instanceof multer.MulterError) {
-      return res.status(413).json({ error: { code: err.code, message: err.message } });
-    }
-    if (err instanceof AppError) {
-      return res.status(err.status).json({ error: { code: err.code, message: err.message, retryable: Boolean(err.retryable) } });
-    }
-    // eslint-disable-next-line no-console
-    console.error('unhandled route error', err);
-    return res.status(500).json({ error: { code: 'INTERNAL', message: 'Internal error' } });
-  });
+  // domain + multer error translation (must be last)
+  router.use(errorHandler);
 
   return router;
 }
