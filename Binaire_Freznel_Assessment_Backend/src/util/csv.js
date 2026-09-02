@@ -1,25 +1,18 @@
 import { ValidationError } from './errors.js';
 
-/**
- * CSV handling for the all-reduce.
- *
- * The brief says files are "filled with numeric values (integers and floats)"
- * and can "vary in row and column sizes (called rank)". So parsing is
- * deliberately permissive:
- *   - comma, tab, semicolon or whitespace separate values
- *   - blank lines are ignored
- *   - non-numeric tokens are ignored (but a file with *zero* numbers is
- *     rejected as invalid)
- *
- * We never build the full number matrix in memory. We keep the raw lines and
- * hand row-ranges ("chunks") to workers, which parse their own slice. That
- * keeps peak memory ~= file size, not 8 bytes * cells.
- */
+// CSV helpers for the reduce.
+//
+// Parsing is loose on purpose: comma / tab / semicolon / whitespace all
+// separate values, blank lines and non-numeric tokens are skipped, and a
+// file with no numbers at all is rejected.
+//
+// We don't build the number matrix in memory. The raw lines are kept and
+// workers get row ranges to parse themselves, so peak memory stays near the
+// file size.
 
 const SEPARATOR = /[\s,;]+/;
 
 export function splitLines(text) {
-  // Normalise newlines, drop a trailing newline, keep everything else.
   return text
     .replace(/\r\n?/g, '\n')
     .split('\n')
@@ -36,11 +29,8 @@ export function countNumericTokens(line) {
   return count;
 }
 
-/**
- * Reduce a set of lines to { sum, count }. This is the exact routine the
- * worker runs; exported here so the inline strategy and the unit tests can
- * share it.
- */
+// Reduce a set of lines to { sum, count }. Shared by the worker, the inline
+// reducer and the tests.
 export function reduceLines(lines) {
   let sum = 0;
   let count = 0;
@@ -57,11 +47,7 @@ export function reduceLines(lines) {
   return { sum, count };
 }
 
-/**
- * Parse the upload into a processing plan.
- * @returns {{ lines: string[], rank: {rows:number, cols:number},
- *             chunks: Array<{index:number,startRow:number,endRow:number}> }}
- */
+// Parse the upload into a plan: { lines, rank: {rows, cols}, chunks }.
 export function planCsv(buffer, { chunkRows }) {
   const text = buffer.toString('utf8');
   const lines = splitLines(text);
@@ -72,8 +58,7 @@ export function planCsv(buffer, { chunkRows }) {
   const cols = Math.max(...lines.slice(0, 25).map((l) => l.split(SEPARATOR).filter(Boolean).length));
   const rank = { rows: lines.length, cols: cols || 0 };
 
-  // Validate there is at least one number anywhere in the first rows, and
-  // that the file is not obviously junk (e.g. prose).
+  // Reject files with no numbers in the first 50 rows (e.g. prose).
   const sampledNumeric = lines
     .slice(0, 50)
     .reduce((acc, l) => acc + countNumericTokens(l), 0);

@@ -1,9 +1,6 @@
 import config from '../../config.js';
 
-/**
- * Service-info endpoint (`GET /`). Not under `/api` — it's the human-facing
- * "is this thing on?" page and a quick endpoint index.
- */
+// GET / - service info and endpoint list.
 export function createMetaController() {
   return {
     index(_req, res) {

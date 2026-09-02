@@ -2,12 +2,8 @@ import { EventEmitter } from 'node:events';
 import { Client } from './Client.js';
 import { NotFoundError } from '../util/errors.js';
 
-/**
- * Hash-map registry of connected clients. Nothing exotic — but it is the
- * authority on "who is still here", which the deadlock guard uses to reap
- * tasks owned by vanished clients (a client that uploads then disappears
- * must not hold a queue slot forever).
- */
+// Map of connected clients. The deadlock guard uses it to reap tasks left
+// behind by clients that disconnected.
 export class ClientRegistry extends EventEmitter {
   #clients = new Map();
 
@@ -28,12 +24,9 @@ export class ClientRegistry extends EventEmitter {
     return c;
   }
 
-  /**
-   * Return the client for `id`, re-materialising it if it has been lost.
-   * On serverless a follow-up request can land on a different (or cold)
-   * instance that never saw the original `POST /api/clients`; rather than
-   * 404 the upload, we trust the client's self-reported id and adopt it.
-   */
+  // Like get(), but recreate the client from its id if it's missing. Used in
+  // serverless, where a follow-up request can hit an instance that never saw
+  // the original register call.
   ensure(id, label) {
     let c = this.#clients.get(id);
     if (!c) {

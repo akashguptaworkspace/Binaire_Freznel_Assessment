@@ -1,21 +1,13 @@
 import { rootLogger } from '../util/Logger.js';
 
-/**
- * The DeadlockGuard is a periodic sweep that actively keeps the system in a
- * live state. It does not "detect a deadlock and recover" so much as it
- * continuously removes the pre-conditions for one:
- *
- *   - AGING      promote low-priority tasks that have waited too long, so a
- *                flood of high-priority work can never starve them.
- *   - WATCHDOG   if a process has pending chunks, no chunk in flight, and
- *                free workers exist, something dropped a `pump()` — kick it.
- *   - CLIENT GC  a client that uploaded then vanished must not keep queue
- *                slots or an active process; reap its tasks.
- *   - RESULT GC  drop finished results past their TTL so memory stays bounded.
- *
- * In server mode it runs on a timer. In serverless mode `sweep()` is called
- * opportunistically from HTTP handlers.
- */
+// Periodic sweep that keeps the queue from wedging. Each pass:
+//   - aging:     bump low tasks that have waited too long
+//   - watchdog:  re-pump a process that has pending chunks, nothing in
+//                flight, and free workers available
+//   - client GC: reap tasks of clients that went away
+//   - result GC: drop finished results past their TTL
+//
+// Runs on a timer in server mode; called from request handlers in serverless.
 export class DeadlockGuard {
   #engine;
   #scheduler;
@@ -57,10 +49,10 @@ export class DeadlockGuard {
     this.#lastSweep = Date.now();
     this.#counters.sweeps += 1;
 
-    // 1. Aging.
+    // aging
     this.#scheduler.promoteAging();
 
-    // 2. Watchdog.
+    // watchdog
     const diag = this.#scheduler.diagnostics();
     if (diag.stalledProcesses > 0) {
       this.#counters.watchdogKicks += 1;
@@ -68,7 +60,7 @@ export class DeadlockGuard {
       this.#scheduler.pump();
     }
 
-    // 3. Stale-client GC.
+    // stale-client GC
     for (const client of this.#registry.list()) {
       if (client.idleMs > this.#config.clients.staleMs) {
         const reaped = this.#scheduler.reapForClient(client.id, 'client went away');
@@ -79,10 +71,9 @@ export class DeadlockGuard {
       }
     }
 
-    // 4. Result TTL GC.
+    // result TTL GC
     this.#counters.resultsExpired += this.#engine.gcResults();
 
-    // Always end a sweep by giving the scheduler a chance to progress.
     this.#scheduler.pump();
   }
 }

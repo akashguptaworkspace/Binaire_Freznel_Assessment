@@ -1,13 +1,5 @@
-/**
- * Live engine state: a one-shot snapshot, the SSE stream, and a manual tick.
- *
- * `tick` exists for serverless mode where there is no background scheduler —
- * the frontend calls it to advance the queue. It's idempotent, so it's
- * harmless in server mode too.
- *
- * @param {{ engine: import('../../engine/QueueEngine.js').QueueEngine,
- *           sseHub: import('../SseHub.js').SseHub }} deps
- */
+// Snapshot, SSE stream, and a manual tick (used by serverless to advance
+// the queue; idempotent).
 export function createRealtimeController({ engine, sseHub }) {
   return {
     // GET /api/state
@@ -15,7 +7,7 @@ export function createRealtimeController({ engine, sseHub }) {
       res.json(engine.snapshot());
     },
 
-    // GET /api/stream (SSE) — SseHub owns the connection lifecycle.
+    // GET /api/stream (SSE)
     stream: sseHub.handler,
 
     // POST /api/tick

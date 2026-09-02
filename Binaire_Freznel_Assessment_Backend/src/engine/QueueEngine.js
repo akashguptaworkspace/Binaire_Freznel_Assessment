@@ -12,16 +12,9 @@ import { planCsv } from '../util/csv.js';
 import { ValidationError, NotFoundError } from '../util/errors.js';
 import { rootLogger } from '../util/Logger.js';
 
-/**
- * QueueEngine is the single façade the transport layer talks to. It wires
- * together the registry, the reduce strategy, the scheduler and the guard,
- * owns the completed-result store, and emits a `change` event whenever the
- * world moves (the SSE hub listens and pushes snapshots).
- *
- * One instance == one queueing "server". `server/src/index.js` keeps it alive
- * on a timer; the Vercel function keeps a warm module-level singleton and
- * drives it via HTTP ticks.
- */
+// The object the HTTP layer talks to. Holds the client registry, the reduce
+// strategy, the scheduler, the deadlock guard and the finished-result store,
+// and emits 'change' on every state transition (the SSE hub listens).
 export class QueueEngine extends EventEmitter {
   #config;
   #log;
@@ -29,7 +22,7 @@ export class QueueEngine extends EventEmitter {
   #reducer;
   #scheduler;
   #guard;
-  #tasks = new Map(); // taskId -> Task (every task ever, until GC)
+  #tasks = new Map(); // taskId -> Task
   #results = new Map(); // taskId -> { summary, csv, expiresAt }
   #recent;
   #tickTimer = null;
@@ -68,12 +61,12 @@ export class QueueEngine extends EventEmitter {
     });
 
     this.#log.info(
-      `engine ready — reduce strategy: ${config.workers.strategy}, pool ${config.workers.poolSize}, ` +
-        `queue cap ${config.queue.capacity}, aging ${config.queue.agingMs}ms`,
+      `engine ready: strategy=${config.workers.strategy} pool=${config.workers.poolSize} ` +
+        `cap=${config.queue.capacity} aging=${config.queue.agingMs}ms`,
     );
   }
 
-  // --- lifecycle -----------------------------------------------------
+  // lifecycle
 
   start() {
     if (this.#tickTimer) return;
@@ -90,13 +83,13 @@ export class QueueEngine extends EventEmitter {
     await this.#reducer.shutdown();
   }
 
-  /** For serverless: advance the world without a background timer. */
+  // Serverless: advance one step without a background timer.
   tick() {
     this.#guard.sweep();
     return this.#scheduler.tick();
   }
 
-  // --- clients ------------------------------------------------------
+  // clients
 
   registerClient(label) {
     const client = this.#registry.register(label);
@@ -114,15 +107,11 @@ export class QueueEngine extends EventEmitter {
     return reaped;
   }
 
-  // --- submission --------------------------------------------------
+  // submission
 
-  /**
-   * @param {{ clientId:string, fileName:string, buffer:Buffer, priority:string }} input
-   * @returns {object} task summary
-   */
   submit({ clientId, fileName, buffer, priority }) {
-    // `ensure` (not `require`) so an upload still works if the registering
-    // request and this one landed on different serverless instances.
+    // In serverless the register call and this one may hit different
+    // instances, so adopt the client id rather than requiring it.
     const client = this.#config.isServerless
       ? this.#registry.ensure(clientId, 'adopted client')
       : this.#registry.require(clientId);
@@ -156,7 +145,7 @@ export class QueueEngine extends EventEmitter {
     try {
       this.#scheduler.enqueue(task, plan);
     } catch (err) {
-      // Bounded-queue rejection: undo bookkeeping, surface as retryable 503.
+      // Queue was full: roll back the bookkeeping and rethrow (retryable 503).
       this.#tasks.delete(task.id);
       client.taskIds.delete(task.id);
       client.stats.submitted -= 1;
@@ -169,13 +158,9 @@ export class QueueEngine extends EventEmitter {
     return task.toJSON();
   }
 
-  /**
-   * Serverless helper: enqueue, then drive the scheduler to completion inside
-   * this single request (there is no background tick on a frozen lambda, and a
-   * follow-up status request may hit a different instance). The returned
-   * summary carries the result CSV inline (base64) so the client can offer a
-   * download with no second round-trip.
-   */
+  // Serverless helper: enqueue and drive the scheduler to completion within
+  // this request, since there's no background tick and a follow-up request
+  // may land elsewhere. Result CSV comes back inline (base64).
   async submitAndSettle(input, { timeoutMs = 45_000 } = {}) {
     const summary = this.submit(input);
     const task = this.#tasks.get(summary.id);
@@ -201,7 +186,7 @@ export class QueueEngine extends EventEmitter {
     return task.toJSON();
   }
 
-  // --- results ----------------------------------------------------
+  // results
 
   #onTaskSettled(task) {
     const client = this.#registry.get(task.clientId);
@@ -218,7 +203,7 @@ export class QueueEngine extends EventEmitter {
         csv,
         expiresAt: Date.now() + this.#config.results.ttlMs,
       });
-      // Targeted notification so the owning client can pull its file back.
+      // Tell the owning client its file is ready.
       this.emit('notify', {
         clientId: task.clientId,
         type: 'result',
@@ -293,7 +278,7 @@ export class QueueEngine extends EventEmitter {
     return expired;
   }
 
-  // --- snapshot --------------------------------------------------
+  // snapshot
 
   snapshot() {
     const sched = this.#scheduler.snapshot();

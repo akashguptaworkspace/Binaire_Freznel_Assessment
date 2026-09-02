@@ -1,11 +1,7 @@
 import { nextClientId } from '../util/ids.js';
 
-/**
- * One client machine. In the browser UI each "client machine" card is a
- * distinct Client with its own id; opening the app in another tab / on
- * another computer creates another one. The server does not care how many
- * there are (the brief's "any count of users N").
- */
+// One client machine. Each browser tab registers its own Client; the server
+// doesn't limit how many there are.
 export class Client {
   constructor({ label } = {}) {
     this.id = nextClientId();

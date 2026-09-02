@@ -4,20 +4,10 @@ import { TaskState, TERMINAL_STATES, canTransition } from './TaskState.js';
 
 export const Priority = Object.freeze({ HIGH: 'high', LOW: 'low' });
 
-/**
- * A Task is one CSV file submitted by one client for an all-reduce.
- *
- * It owns:
- *   - its immutable identity + metadata (client, filename, size, priority)
- *   - the "rank" of the CSV (rows x cols) once parsed
- *   - a list of chunk descriptors (row-slices) fed to the worker pool
- *   - accumulating partial sums + progress
- *   - its state-machine position and a full transition history (for the UI
- *     timeline and for debugging)
- *
- * The Task emits `change` on every meaningful mutation; the engine listens
- * and re-broadcasts a fresh snapshot to all clients.
- */
+// One CSV file submitted by one client. Holds its metadata, the CSV rank
+// (rows x cols), the chunk plan, the accumulating partial sums, and its
+// state-machine position plus transition history. Emits 'change' on every
+// mutation so the engine can rebroadcast.
 export class Task extends EventEmitter {
   constructor({ clientId, fileName, sizeBytes, priority }) {
     super();
@@ -27,8 +17,7 @@ export class Task extends EventEmitter {
     this.sizeBytes = sizeBytes || 0;
     this.priority = priority === Priority.HIGH ? Priority.HIGH : Priority.LOW;
 
-    /** Set true by the aging guard; makes `effectivePriority` report HIGH. */
-    this.promoted = false;
+    this.promoted = false; // set by aging; makes effectivePriority report high
 
     this.state = TaskState.UPLOADED;
     this.createdAt = Date.now();
@@ -39,26 +28,23 @@ export class Task extends EventEmitter {
 
     this.processId = null;
 
-    /** { rows, cols } — the "rank" from the brief. */
     this.rank = { rows: 0, cols: 0 };
 
-    /** Chunk plan: [{ index, startRow, endRow }]. Filled by the CSV parser. */
-    this.chunks = [];
+    this.chunks = []; // [{ index, startRow, endRow }], filled by planCsv
     this.chunksTotal = 0;
     this.chunksDone = 0;
     this.partialSums = [];
     this.valuesCounted = 0;
 
-    /** Final all-reduced scalar. */
-    this.result = null;
+    this.result = null; // final reduced scalar
     this.error = null;
 
     this.history = [{ state: this.state, at: this.createdAt }];
   }
 
-  // --- ordering keys -------------------------------------------------------
+  // ordering keys
 
-  /** 0 = high, 1 = low. Aging can promote a low task to 0. */
+  // 0 = high, 1 = low. Aging can move a low task to 0.
   get effectivePriorityRank() {
     if (this.promoted) return 0;
     return this.priority === Priority.HIGH ? 0 : 1;
@@ -80,7 +66,7 @@ export class Task extends EventEmitter {
     return Math.min(99, Math.round((this.chunksDone / this.chunksTotal) * 100));
   }
 
-  // --- mutations ---------------------------------------------------------
+  // mutations
 
   setRankAndChunks(rank, chunks) {
     this.rank = rank;
@@ -122,10 +108,10 @@ export class Task extends EventEmitter {
     }
   }
 
-  /** All-reduce: fold every partial sum into the single output scalar. */
+  // Fold every partial sum into the final scalar.
   finalizeReduce() {
     const total = this.partialSums.reduce((acc, n) => acc + n, 0);
-    // Round tiny FP noise from summing many floats.
+    // Trim floating-point noise from summing many values.
     this.result = Number.parseFloat(total.toPrecision(15));
     this.transition(TaskState.COMPLETED, { result: this.result });
     return this.result;
@@ -143,7 +129,7 @@ export class Task extends EventEmitter {
     this.transition(TaskState.CANCELLED, { error: this.error });
   }
 
-  // --- serialization ---------------------------------------------------
+  // serialization
 
   toJSON() {
     return {

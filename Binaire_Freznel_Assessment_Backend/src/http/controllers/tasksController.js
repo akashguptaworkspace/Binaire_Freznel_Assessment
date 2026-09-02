@@ -1,13 +1,8 @@
 import config from '../../config.js';
 import { ValidationError } from '../../util/errors.js';
 
-/**
- * Upload -> queue -> all-reduce -> download. Handlers validate request shape
- * and translate the engine's return values / throws into HTTP; all queueing,
- * scheduling and reduction logic lives in the engine.
- *
- * @param {{ engine: import('../../engine/QueueEngine.js').QueueEngine }} deps
- */
+// Upload -> queue -> reduce -> download. Handlers check the request shape;
+// the engine does the work.
 export function createTasksController({ engine }) {
   return {
     // POST /api/uploads  (multipart: file, clientId, priority)
@@ -23,9 +18,8 @@ export function createTasksController({ engine }) {
         priority,
       };
 
-      // Serverless: settle within this request (no background scheduler, and
-      // the next request may land on another instance). Server mode: enqueue
-      // and let the tick loop + SSE take it from here.
+      // Serverless settles inline; server mode enqueues and lets the tick
+      // loop and SSE take over.
       const task = config.isServerless
         ? await engine.submitAndSettle(input)
         : engine.submit(input);
@@ -49,8 +43,7 @@ export function createTasksController({ engine }) {
       res.json({ result: summary });
     },
 
-    // GET /api/tasks/:id/result/file
-    // "Post processing completion, server sends the file back to the client."
+    // GET /api/tasks/:id/result/file - download the reduced CSV
     resultFile(req, res) {
       const { fileName, csv } = engine.getResultFile(req.params.id);
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');

@@ -1,9 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-/**
- * Small helpers for generating human-readable, sortable identifiers.
- * Sequence-based ids keep FIFO ordering obvious when debugging the queue.
- */
+// Readable, sequential ids. The counter prefix makes queue order obvious in logs.
 
 let taskSeq = 0;
 let processSeq = 0;

@@ -1,17 +1,9 @@
 import { rootLogger } from '../util/Logger.js';
 
-/**
- * Server-Sent Events fan-out.
- *
- * Why SSE and not WebSockets: the whole system also has to run as a Vercel
- * serverless function, where long-lived duplex sockets are not available.
- * SSE is plain HTTP, works through the same Express route table, and
- * degrades to ordinary polling (`GET /api/state`) if even streaming is
- * unavailable.
- *
- * `change` events from the engine are coalesced (at most one snapshot per
- * `minIntervalMs`) so a burst of task transitions doesn't flood every client.
- */
+// Server-Sent Events fan-out. SSE (not WebSockets) because it's plain HTTP
+// and works in serverless; clients can also fall back to polling GET
+// /api/state. Engine 'change' events are coalesced to at most one snapshot
+// per minIntervalMs.
 export class SseHub {
   #engine;
   #log;
@@ -35,7 +27,7 @@ export class SseHub {
     this.#heartbeat.unref?.();
   }
 
-  /** Express handler for `GET /api/stream?clientId=...` */
+  // GET /api/stream?clientId=...
   handler = (req, res) => {
     const clientId = req.query.clientId || null;
     res.writeHead(200, {
@@ -50,8 +42,7 @@ export class SseHub {
     this.#connections.add(conn);
     this.#log.info(`stream open #${conn.id} (client ${clientId ?? 'anon'}), ${this.#connections.size} total`);
 
-    // Prime the new subscriber immediately.
-    this.#send(conn, 'snapshot', this.#engine.snapshot());
+    this.#send(conn, 'snapshot', this.#engine.snapshot()); // prime the new client
 
     req.on('close', () => {
       this.#connections.delete(conn);

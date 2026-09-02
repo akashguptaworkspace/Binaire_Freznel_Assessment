@@ -4,11 +4,8 @@ import { rootLogger } from '../../util/Logger.js';
 
 const log = rootLogger.child('http');
 
-/**
- * Terminal error middleware. Keeps controllers dumb: they `throw` domain
- * errors (see util/errors.js) and this translates them to a stable JSON
- * shape `{ error: { code, message, retryable } }`.
- */
+// Terminal error middleware. Translates thrown errors to
+// { error: { code, message, retryable } }.
 // eslint-disable-next-line no-unused-vars -- Express needs the 4-arg signature
 export function errorHandler(err, _req, res, _next) {
   if (err instanceof multer.MulterError) {

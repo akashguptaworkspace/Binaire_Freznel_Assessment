@@ -6,13 +6,8 @@ import { SseHub } from './http/SseHub.js';
 import { createRouter } from './http/routes.js';
 import { createMetaController } from './http/controllers/metaController.js';
 
-/**
- * Build the Express app around a single QueueEngine (`src/index.js` runs it
- * as a long-lived server). This service is API-only — the React dashboard is
- * a separate repo/deploy and talks to it over CORS.
- *
- * @param {{ engine?: QueueEngine }} [opts]
- */
+// Build the Express app around one QueueEngine. API only; the React app is a
+// separate deploy and talks to it over CORS.
 export function createApp(opts = {}) {
   const engine = opts.engine || new QueueEngine(config);
   const sseHub = new SseHub(engine, { minIntervalMs: 120 });

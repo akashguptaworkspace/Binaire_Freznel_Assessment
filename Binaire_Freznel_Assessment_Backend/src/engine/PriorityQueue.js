@@ -1,17 +1,12 @@
-/**
- * Binary min-heap priority queue.
- *
- * Generic over the stored value; ordering is decided by a `comparator(a, b)`
- * that returns a negative number when `a` should come out first.
- *
- * Extras beyond a textbook heap, needed by the scheduler:
- *   - `remove(predicate)`   O(n) find + O(log n) sift  (task cancellation)
- *   - `reheapify()`         O(n)                        (after aging mutates keys)
- *   - `toArray()` / `[Symbol.iterator]`                 (queue snapshots for the UI)
- *
- * The heap keeps an internal `#position` map (value -> index) so sift
- * operations after an arbitrary removal stay logarithmic.
- */
+// Binary min-heap. Order is decided by comparator(a, b) < 0 meaning a comes
+// out first.
+//
+// Beyond a plain heap the scheduler needs:
+//   remove(predicate) - for task cancellation
+//   reheapify()       - after aging changes comparator keys
+//   toArray()         - sorted snapshot for the UI
+//
+// A #position map (value -> index) keeps removal from the middle O(log n).
 export class PriorityQueue {
   #heap = [];
   #comparator;
@@ -61,10 +56,10 @@ export class PriorityQueue {
     return this.#position.has(value);
   }
 
-  /** Remove every element matching `predicate`. Returns the removed items. */
+  // Remove every element matching predicate; returns the removed items.
   remove(predicate) {
     const removed = [];
-    // Collect first, then delete, so index churn doesn't skip elements.
+    // Collect first, then delete, so shifting indexes don't skip elements.
     const targets = this.#heap.filter((v) => predicate(v));
     for (const value of targets) {
       const idx = this.#position.get(value);
@@ -75,7 +70,7 @@ export class PriorityQueue {
       if (idx < this.#heap.length) {
         this.#heap[idx] = last;
         this.#position.set(last, idx);
-        // The moved element may need to go either direction.
+        // The moved element could belong higher or lower.
         this.#siftDown(idx);
         this.#siftUp(idx);
       }
@@ -83,16 +78,15 @@ export class PriorityQueue {
     return removed;
   }
 
-  /** Rebuild heap order. Call after external state changes comparator keys. */
+  // Rebuild heap order after comparator keys change outside the queue.
   reheapify() {
     for (let i = Math.floor(this.#heap.length / 2) - 1; i >= 0; i -= 1) {
       this.#siftDown(i);
     }
   }
 
+  // Sorted copy; does not touch the heap.
   toArray() {
-    // Sorted copy (does not mutate the heap) — used for UI snapshots where
-    // callers expect strict priority order.
     return [...this.#heap].sort(this.#comparator);
   }
 

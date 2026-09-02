@@ -1,7 +1,5 @@
-/**
- * Domain error types. Each carries an HTTP status so the transport layer
- * can stay dumb and just forward `err.status` / `err.code`.
- */
+// Error types. Each one carries an HTTP status and code so the error
+// middleware can just forward them.
 export class AppError extends Error {
   constructor(message, { status = 500, code = 'INTERNAL' } = {}) {
     super(message);
@@ -23,11 +21,8 @@ export class NotFoundError extends AppError {
   }
 }
 
-/**
- * Thrown when the bounded queue is full. The client is expected to back off
- * and retry — this is a deliberate deadlock-avoidance choice (we reject
- * instead of blocking the producer). See docs/DEADLOCKS.md.
- */
+// Thrown when the queue is at capacity. We reject with a retryable 503
+// rather than block the uploader. See docs/DEADLOCKS.md.
 export class QueueFullError extends AppError {
   constructor(capacity) {
     super(`Queue is at capacity (${capacity}). Retry shortly.`, {

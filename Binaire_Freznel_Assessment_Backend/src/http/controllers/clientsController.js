@@ -1,10 +1,4 @@
-/**
- * Client lifecycle. A "client" is one browser tab / simulated machine in the
- * dashboard; the engine tracks its heartbeat and reaps its queued work when
- * it goes away. Handlers only shape input/output — the engine owns the rules.
- *
- * @param {{ engine: import('../../engine/QueueEngine.js').QueueEngine }} deps
- */
+// Client register / heartbeat / disconnect.
 export function createClientsController({ engine }) {
   return {
     // POST /api/clients

@@ -5,12 +5,8 @@ import { nextProcessId } from '../util/ids.js';
 import { QueueFullError } from '../util/errors.js';
 import { rootLogger } from '../util/Logger.js';
 
-/**
- * Ordering for the waiting queue:
- *   1. effective priority   (high before low; aging can promote low -> high)
- *   2. FIFO by enqueue time  (fairness within a priority band)
- *   3. task id               (total order, keeps the heap deterministic)
- */
+// Waiting-queue order: effective priority first (aging can bump low to high),
+// then FIFO by enqueue time, then task id as a tie-breaker.
 function compareTasks(a, b) {
   if (a.effectivePriorityRank !== b.effectivePriorityRank) {
     return a.effectivePriorityRank - b.effectivePriorityRank;
@@ -19,18 +15,15 @@ function compareTasks(a, b) {
   return a.id < b.id ? -1 : 1;
 }
 
-/**
- * The Scheduler owns the waiting queue and the set of in-flight "processes".
- *
- * A "process" == one admitted Task with a process id. Its CSV is split into
- * chunks; chunks from ALL active processes compete for the shared worker pool,
- * ordered by priority. Because scheduling happens at chunk granularity:
- *   - a small high-priority file is never stuck behind a huge low-priority one
- *   - no task holds a worker for longer than a single chunk (no hold-and-wait)
- *
- * All mutation happens synchronously on the Node event loop between `await`
- * points, so the scheduler's own state never needs a lock.
- */
+// Owns the waiting queue and the set of running "processes" (one admitted
+// task = one process id). A process's CSV is split into chunks, and chunks
+// from every running process compete for the shared worker pool in priority
+// order. Scheduling at chunk granularity means a small high-priority file is
+// never stuck behind a big low-priority one, and no task holds a worker for
+// more than one chunk.
+//
+// All state changes happen synchronously between await points, so there's no
+// lock.
 export class Scheduler extends EventEmitter {
   #queue = new PriorityQueue(compareTasks);
   #active = new Map(); // processId -> record
@@ -58,7 +51,7 @@ export class Scheduler extends EventEmitter {
     return this.#active.size;
   }
 
-  // --- submission ------------------------------------------------------
+  // submission
 
   enqueue(task, plan) {
     if (this.#queue.size >= this.#config.queue.capacity) {
@@ -74,7 +67,7 @@ export class Scheduler extends EventEmitter {
   }
 
   cancel(task, reason) {
-    // Case 1: still waiting in the queue — pull it straight out.
+    // Still in the queue: pull it out.
     if (this.#queue.has(task)) {
       this.#queue.remove((t) => t === task);
       this.#plans.delete(task.id);
@@ -83,8 +76,7 @@ export class Scheduler extends EventEmitter {
       this.#onSettled(task);
       return true;
     }
-    // Case 2: already an active process — flag it; in-flight chunks are
-    // allowed to drain, then the record is cleaned up.
+    // Already running: mark it, let in-flight chunks drain, then clean up.
     for (const [pid, record] of this.#active) {
       if (record.task === task) {
         record.cancelled = true;
@@ -98,7 +90,7 @@ export class Scheduler extends EventEmitter {
     return false;
   }
 
-  // --- aging (anti-starvation) ----------------------------------------
+  // aging / anti-starvation
 
   promoteAging() {
     const agingMs = this.#config.queue.agingMs;
@@ -122,21 +114,17 @@ export class Scheduler extends EventEmitter {
     return this.#agingPromotions;
   }
 
-  // --- the pump -------------------------------------------------------
+  // the pump
 
-  /**
-   * Idempotent. Admits as many processes as allowed, then feeds as many
-   * chunks to the pool as there is capacity for. Safe to call from a timer,
-   * from an HTTP handler (serverless), or recursively after a chunk settles.
-   */
+  // Idempotent. Admits processes up to the limit, then dispatches as many
+  // chunks as the pool has room for. Safe to call from anywhere.
   pump() {
     this.#admitProcesses();
     this.#dispatchChunks();
   }
 
   tick() {
-    // Aging is handled by the DeadlockGuard sweep (coarser cadence is fine);
-    // the tick loop only needs to keep the pump turning.
+    // Aging runs on the guard sweep; the tick loop just keeps the pump going.
     this.pump();
     return this.#active.size > 0 || this.#queue.size > 0;
   }
@@ -187,7 +175,7 @@ export class Scheduler extends EventEmitter {
         const chunkIndex = record.pending.shift();
         this.#dispatchChunk(record, chunkIndex);
         dispatched = true;
-        break; // re-evaluate priority order after every single dispatch
+        break; // recheck priority order after each dispatch
       }
       if (!dispatched) break;
     }
@@ -226,7 +214,7 @@ export class Scheduler extends EventEmitter {
         record.retries.set(chunkIndex, attempts);
         if (attempts <= this.#config.workers.maxChunkRetries) {
           this.#log.warn(`retry chunk ${chunkIndex} of ${task.id} (attempt ${attempts}): ${err.message}`);
-          record.pending.push(chunkIndex); // back of its own queue
+          record.pending.push(chunkIndex); // requeue at the back
         } else {
           this.#log.error(`chunk ${chunkIndex} of ${task.id} failed permanently: ${err.message}`);
           this.#retireProcess(record.processId, () => task.fail(err));
@@ -234,8 +222,7 @@ export class Scheduler extends EventEmitter {
       })
       .finally(() => {
         this.emit('change');
-        // Something freed up (a worker, a process slot) — keep the wheel turning.
-        this.pump();
+        this.pump(); // a worker just freed up
       });
 
     this.emit('change');
@@ -261,7 +248,7 @@ export class Scheduler extends EventEmitter {
     this.#onSettled(record.task);
   }
 
-  // --- introspection -------------------------------------------------
+  // introspection
 
   reapForClient(clientId, reason) {
     const victims = [];

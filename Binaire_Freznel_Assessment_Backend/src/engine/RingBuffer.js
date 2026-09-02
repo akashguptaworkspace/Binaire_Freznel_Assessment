@@ -1,7 +1,4 @@
-/**
- * Fixed-capacity circular buffer. Used to keep the "recently completed"
- * strip in the UI bounded without unshifting a growing array on every job.
- */
+// Fixed-capacity circular buffer, used for the "recently completed" list.
 export class RingBuffer {
   #items;
   #capacity;
@@ -23,13 +20,12 @@ export class RingBuffer {
       this.#items[idx] = value;
       this.#count += 1;
     } else {
-      // Overwrite the oldest.
-      this.#items[this.#head] = value;
+      this.#items[this.#head] = value; // overwrite oldest
       this.#head = (this.#head + 1) % this.#capacity;
     }
   }
 
-  /** Newest first. */
+  // Newest first.
   toArray() {
     const out = [];
     for (let i = this.#count - 1; i >= 0; i -= 1) {

@@ -1,7 +1,4 @@
-/**
- * Tiny leveled logger. No dependency, structured-ish output so the queue
- * lifecycle is easy to follow in a terminal or in Vercel's function logs.
- */
+// Tiny leveled logger, no dependencies.
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40, silent: 99 };
 
 export class Logger {

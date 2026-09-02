@@ -1,8 +1,6 @@
 import config from '../../config.js';
 
-/**
- * Liveness probe (`GET /api/health`). Render's health check hits this.
- */
+// GET /api/health - Render's health check hits this.
 export function createHealthController() {
   return {
     show(_req, res) {

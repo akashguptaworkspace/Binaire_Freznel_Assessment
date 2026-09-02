@@ -1,16 +1,9 @@
 import { reduceLines } from '../util/csv.js';
 
-/**
- * Fallback reduce strategy for serverless (Vercel) where a background
- * worker_threads pool cannot be relied on to survive between invocations.
- *
- * It exposes the SAME interface as WorkerPool (`runChunk`, `stats`,
- * `shutdown`) so the Scheduler is completely unaware which one it is using.
- *
- * It stays cooperative by yielding to the event loop (`setImmediate`) around
- * each chunk, and it caps concurrency so one big request cannot monopolise
- * the single Node isolate.
- */
+// Reduce strategy for serverless, where worker threads can't be kept alive
+// between invocations. Same interface as WorkerPool (runChunk / stats /
+// shutdown) so the Scheduler doesn't know the difference. Yields to the event
+// loop around each chunk and caps concurrency.
 export class InlineReducer {
   #concurrency;
   #active = 0;
@@ -86,9 +79,7 @@ export class InlineReducer {
     }
   }
 
-  async shutdown() {
-    /* nothing to tear down */
-  }
+  async shutdown() {}
 }
 
 export default InlineReducer;

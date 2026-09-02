@@ -10,14 +10,8 @@ import { createClientsController } from './controllers/clientsController.js';
 import { createRealtimeController } from './controllers/realtimeController.js';
 import { createTasksController } from './controllers/tasksController.js';
 
-/**
- * The `/api` route table — nothing but wiring. Each line maps a method +
- * path to a controller action; request parsing lives in middleware, business
- * logic in the engine, error translation in errorHandler.
- *
- * @param {{ engine: import('../engine/QueueEngine.js').QueueEngine,
- *           sseHub: import('./SseHub.js').SseHub }} deps
- */
+// The /api route table. Each line maps a method + path to a controller
+// action; parsing is in middleware, logic in the engine.
 export function createRouter({ engine, sseHub }) {
   const router = Router();
 
@@ -28,28 +22,23 @@ export function createRouter({ engine, sseHub }) {
 
   router.use(serverlessTick({ engine }));
 
-  // health
   router.get('/health', health.show);
 
-  // clients
   router.post('/clients', asyncHandler(clients.create));
   router.post('/clients/:id/heartbeat', asyncHandler(clients.heartbeat));
   router.delete('/clients/:id', asyncHandler(clients.remove));
 
-  // realtime
   router.get('/state', realtime.state);
   router.get('/stream', realtime.stream);
   router.post('/tick', realtime.tick);
 
-  // uploads / tasks
   router.post('/uploads', upload.single('file'), asyncHandler(tasks.upload));
   router.get('/tasks/:id', asyncHandler(tasks.show));
   router.post('/tasks/:id/cancel', asyncHandler(tasks.cancel));
   router.get('/tasks/:id/result', asyncHandler(tasks.result));
   router.get('/tasks/:id/result/file', asyncHandler(tasks.resultFile));
 
-  // domain + multer error translation (must be last)
-  router.use(errorHandler);
+  router.use(errorHandler); // must be last
 
   return router;
 }

@@ -1,16 +1,6 @@
-/**
- * The lifecycle of one CSV file inside the system. The string values are the
- * exact labels the UI renders (see the assessment brief):
- *
- *   1. File uploading           -> UPLOADING   (reported by the client)
- *   2. File uploaded            -> UPLOADED
- *   3. File added to queue      -> QUEUED
- *   4. Waiting for processing   -> WAITING     (process id assigned)
- *   5. Processing…              -> PROCESSING  (completion %)
- *   6. Completed                -> COMPLETED
- *
- * Plus two terminal off-ramps: FAILED and CANCELLED.
- */
+// Task lifecycle:
+//   UPLOADING -> UPLOADED -> QUEUED -> WAITING -> PROCESSING -> COMPLETED
+// with FAILED and CANCELLED as terminal off-ramps.
 export const TaskState = Object.freeze({
   UPLOADING: 'UPLOADING',
   UPLOADED: 'UPLOADED',
@@ -28,11 +18,7 @@ export const TERMINAL_STATES = new Set([
   TaskState.CANCELLED,
 ]);
 
-/**
- * Allowed transitions. Any transition not listed here is a bug and throws —
- * this is the main guard against the scheduler and the guard thread racing
- * a task into an impossible state.
- */
+// Allowed transitions. Anything else throws (see Task.transition).
 export const TRANSITIONS = Object.freeze({
   [TaskState.UPLOADING]: [TaskState.UPLOADED, TaskState.FAILED, TaskState.CANCELLED],
   [TaskState.UPLOADED]: [TaskState.QUEUED, TaskState.FAILED, TaskState.CANCELLED],
